@@ -597,6 +597,10 @@ const Header = () => {
                             if (!notification.is_read) {
                               markAsRead(notification.id);
                             }
+                            if (notification.event_proposal_id) {
+                              navigate("/events?tab=my-events");
+                              setIsNotificationsOpen(false);
+                            }
                           }}
                         >
                           <div className="flex items-start gap-2">
@@ -617,7 +621,9 @@ const Header = () => {
                                     ? "Complaint Acknowledged"
                                     : notification.type === "task_assigned"
                                       ? "Task Assigned"
-                                      : "Task Update"}
+                                      : notification.type.startsWith("event_")
+                                        ? "Event Proposal"
+                                        : "Task Update"}
                               </p>
                               <p className="text-xs text-muted-foreground line-clamp-2">
                                 {notification.message}

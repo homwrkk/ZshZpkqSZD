@@ -349,7 +349,7 @@ const getConfiguration = () => {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!secretKey || !secretHash || !supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
+  if (!secretKey || !supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
     throw new Error("Event payment configuration is incomplete");
   }
   return { secretKey, secretHash, supabaseUrl, supabaseAnonKey, supabaseServiceRoleKey };
@@ -443,8 +443,12 @@ const confirmBookingAsService = async (bookingId, transactionId) => {
     headers: { ...restHeaders(supabaseServiceRoleKey, supabaseAnonKey, true), Prefer: "return=representation" },
     body: JSON.stringify({ target_booking_id: bookingId, target_transaction_id: transactionId })
   });
-  if (!response.ok) throw new Error("Unable to confirm event booking");
-  const [confirmation] = await response.json();
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = payload && !Array.isArray(payload) ? [payload.message, payload.details, payload.hint].filter((value) => typeof value === "string" && Boolean(value.trim())).join(" — ") : "";
+    throw new Error(error || "Unable to confirm event booking");
+  }
+  const [confirmation] = Array.isArray(payload) ? payload : [];
   if (!confirmation) throw new Error("Event booking confirmation was not returned");
   return confirmation;
 };
@@ -454,9 +458,10 @@ const assertTransactionMatches = (transaction, attempt, booking) => {
   if (transaction.meta?.booking_id !== booking.id) throw new Error("Event payment metadata does not match the booking");
 };
 const prepareSpecialEventPayment = async (req, res) => {
+  let bookingId;
   let txRef;
   try {
-    const { bookingId } = req.body;
+    bookingId = req.body.bookingId;
     if (!bookingId) throw new SpecialEventPaymentError("Booking ID is required");
     const booking = await getBooking(bookingId, req.headers.authorization);
     if (booking.payment_status === "paid") throw new SpecialEventPaymentError("This event booking has already been paid", 409);
@@ -502,13 +507,17 @@ const prepareSpecialEventPayment = async (req, res) => {
         customizations: { title: "Special Events", description: `Event booking ${booking.order_number}` }
       })
     });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== "success" || !payload.data?.link) throw new Error("Unable to create secure event payment page");
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.status !== "success" || !payload.data?.link) {
+      const providerMessage = typeof payload?.message === "string" ? payload.message : "Flutterwave did not return a checkout link";
+      throw new SpecialEventPaymentError(`Flutterwave checkout failed: ${providerMessage}`, 502);
+    }
     await updatePaymentAttempt(txRef, { status: "redirected", payment_url: payload.data.link });
     return res.json({ paymentUrl: payload.data.link, txRef, bookingId: booking.id });
   } catch (error) {
+    console.error("Special event checkout initialization failed", { bookingId, txRef, error });
     if (txRef) await updatePaymentAttempt(txRef, { status: "failed", failure_reason: error instanceof Error ? error.message : "Unable to prepare event payment" }).catch(() => void 0);
-    return res.status(error instanceof SpecialEventPaymentError ? error.status : 400).json({ error: error instanceof Error ? error.message : "Unable to prepare event payment" });
+    return res.status(error instanceof SpecialEventPaymentError ? error.status : 502).json({ error: error instanceof Error ? error.message : "Unable to prepare event payment" });
   }
 };
 const verifySpecialEventPayment = async (req, res) => {
@@ -547,6 +556,10 @@ const cancelSpecialEventPayment = async (req, res) => {
 };
 const handleSpecialEventWebhook = async (req, res) => {
   const { secretHash } = getConfiguration();
+  if (!secretHash) {
+    console.error("Special event webhook secret is not configured");
+    return res.status(503).end();
+  }
   if (req.headers["verif-hash"] !== secretHash) return res.status(401).end();
   const payload = req.body;
   if (payload.event !== "charge.completed" || !payload.data?.id || !payload.data.tx_ref) return res.status(200).end();
