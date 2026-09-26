@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff, Crown } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -7,6 +7,10 @@ import { supabase } from "../lib/supabase";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedReturnTo = searchParams.get("returnTo");
+  const returnTo = requestedReturnTo?.startsWith("/") && !requestedReturnTo.startsWith("//") ? requestedReturnTo : "/profile";
+  const registerPath = returnTo === "/profile" ? "/register" : `/register?returnTo=${encodeURIComponent(returnTo)}`;
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -63,8 +67,7 @@ const LoginPage: React.FC = () => {
         return;
       }
 
-      // Successfully logged in, navigate to profile
-      navigate("/profile");
+      navigate(returnTo, { replace: true });
     } catch (error) {
       setErrors({
         submit: error instanceof Error ? error.message : "Login failed. Please try again.",
@@ -207,7 +210,7 @@ const LoginPage: React.FC = () => {
           <p className="text-gray-600">
             Don't have an account?{" "}
             <Link
-              to="/register"
+              to={registerPath}
               className="text-sheraton-navy font-semibold hover:underline"
             >
               Create one here
