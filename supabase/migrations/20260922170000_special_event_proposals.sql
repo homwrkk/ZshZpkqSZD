@@ -494,8 +494,11 @@ create policy special_events_manager_select
   using (public.is_special_event_platform_manager());
 create policy special_events_manager_update
   on public.special_events for update to authenticated
-  using (public.is_special_event_platform_manager())
-  with check (public.is_special_event_platform_manager());
+  using (public.is_special_event_manager(id))
+  with check (
+    public.is_special_event_platform_manager()
+    or (status <> 'published' and public.is_special_event_manager(id))
+  );
 drop policy if exists special_events_manager_delete on public.special_events;
 create policy special_events_manager_delete
   on public.special_events for delete to authenticated
@@ -520,8 +523,10 @@ alter table public.notifications
     'complaint_filed', 'complaint_acknowledged', 'task_created', 'task_updated',
     'task_assigned', 'task_accepted', 'task_declined', 'task_proposed',
     'proposal_accepted', 'proposal_declined', 'proposal_updated', 'todo_created',
-    'task_message', 'event_proposal_submitted', 'event_proposal_updated',
-    'event_proposal_scheduled', 'event_proposal_declined', 'event_published'
+    'task_message', 'report_submitted', 'evidence_approved', 'issue_raised', 'issue_resolved',
+    'task_flagged', 'task_approval_ready',
+    'event_proposal_submitted', 'event_proposal_updated', 'event_proposal_scheduled',
+    'event_proposal_declined', 'event_published'
   ));
 
 do $$
@@ -536,3 +541,5 @@ begin
   end if;
 end;
 $$;
+
+notify pgrst, 'reload schema';
