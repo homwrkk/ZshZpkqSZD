@@ -1,3 +1,5 @@
+begin;
+
 create table if not exists public.special_event_facilities (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
@@ -491,7 +493,7 @@ drop policy if exists special_events_manager_update on public.special_events;
 drop policy if exists special_events_manager_select on public.special_events;
 create policy special_events_manager_select
   on public.special_events for select to authenticated
-  using (public.is_special_event_platform_manager());
+  using (public.is_special_event_manager(id));
 create policy special_events_manager_update
   on public.special_events for update to authenticated
   using (public.is_special_event_manager(id))
@@ -529,6 +531,39 @@ alter table public.notifications
     'event_proposal_declined', 'event_published'
   ));
 
+drop policy if exists notifications_event_proposal_insert_rpc_only on public.notifications;
+create policy notifications_event_proposal_insert_rpc_only
+  on public.notifications as restrictive for insert to public
+  with check (type not in (
+    'event_proposal_submitted', 'event_proposal_updated', 'event_proposal_scheduled',
+    'event_proposal_declined', 'event_published'
+  ));
+
+create or replace function public.protect_event_proposal_notifications()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if (old.type in (
+        'event_proposal_submitted', 'event_proposal_updated', 'event_proposal_scheduled',
+        'event_proposal_declined', 'event_published'
+      ) or new.type in (
+        'event_proposal_submitted', 'event_proposal_updated', 'event_proposal_scheduled',
+        'event_proposal_declined', 'event_published'
+      ))
+     and (to_jsonb(new) - 'is_read') is distinct from (to_jsonb(old) - 'is_read') then
+    raise exception 'Event proposal notifications are immutable';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_event_proposal_notifications on public.notifications;
+create trigger protect_event_proposal_notifications
+  before update on public.notifications
+  for each row execute function public.protect_event_proposal_notifications();
+
 do $$
 begin
   if not exists (
@@ -543,3 +578,5 @@ end;
 $$;
 
 notify pgrst, 'reload schema';
+
+commit;
