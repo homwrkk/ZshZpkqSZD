@@ -25,6 +25,8 @@ export interface SpecialEvent {
   facility_id?: string | null;
   is_private?: boolean;
   source_plan_id?: string | null;
+  share_token?: string | null;
+  invitation_id?: string | null;
   price: number;
   currency: string;
   capacity: number;
@@ -82,6 +84,9 @@ export interface SpecialEventPlan {
   ends_at: string | null;
   timezone: string;
   expected_guests: number;
+  entry_type: "free" | "paid";
+  entry_fee: number;
+  entry_currency: string;
   description: string | null;
   image_url: string | null;
   is_private: boolean;
@@ -101,9 +106,18 @@ export interface SpecialEventPlan {
   reviewed_at: string | null;
   published_at: string | null;
   special_event_id: string | null;
+  share_token: string;
   status: "draft" | "submitted" | "changes_requested" | "scheduled" | "declined" | "cancelled";
   created_at: string;
   updated_at: string;
+}
+
+export interface SpecialEventInvitationSummary {
+  id: string;
+  event_id: string;
+  invitee_email: string;
+  invitation_status: "pending" | "accepted" | "declined" | "revoked";
+  event: SpecialEvent;
 }
 
 export const formatEventDate = (startsAt: string, timezone: string) => {

@@ -600,6 +600,9 @@ const Header = () => {
                             if (notification.event_proposal_id) {
                               navigate("/events?tab=my-events");
                               setIsNotificationsOpen(false);
+                            } else if (notification.event_invitation_id) {
+                              navigate(`/events?tab=my-events&invitationId=${notification.event_invitation_id}`);
+                              setIsNotificationsOpen(false);
                             }
                           }}
                         >
@@ -621,8 +624,10 @@ const Header = () => {
                                     ? "Complaint Acknowledged"
                                     : notification.type === "task_assigned"
                                       ? "Task Assigned"
-                                      : notification.type.startsWith("event_")
-                                        ? "Event Proposal"
+                                      : notification.type.startsWith("event_invitation_")
+                                        ? "Event Invitation"
+                                        : notification.type.startsWith("event_")
+                                          ? "Event Proposal"
                                         : "Task Update"}
                               </p>
                               <p className="text-xs text-muted-foreground line-clamp-2">

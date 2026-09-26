@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Crown,
   User,
@@ -26,6 +26,9 @@ import { supabase } from "../lib/supabase";
 
 const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedReturnTo = searchParams.get("returnTo");
+  const returnTo = requestedReturnTo?.startsWith("/") && !requestedReturnTo.startsWith("//") ? requestedReturnTo : "/profile";
   const [step, setStep] = useState<
     "role" | "info" | "preferences" | "verification" | "complete"
   >("role");
@@ -218,7 +221,7 @@ const RegisterPage: React.FC = () => {
 
       // 3. Enter the app immediately when signup created an active session.
       if (authData.session) {
-        navigate("/profile", { replace: true });
+        navigate(returnTo, { replace: true });
       } else {
         setStep("complete");
       }
@@ -1076,7 +1079,7 @@ const RegisterPage: React.FC = () => {
               <p className="text-gray-600">
                 Already have an account?{" "}
                 <Link
-                  to="/login"
+                  to={returnTo === "/profile" ? "/login" : `/login?returnTo=${encodeURIComponent(returnTo)}`}
                   className="text-sheraton-navy underline hover:no-underline"
                 >
                   Sign in here
