@@ -165,6 +165,7 @@ const RegisterPage: React.FC = () => {
         email: formData.email,
         password: formData.password,
         options: {
+          emailRedirectTo: new URL(returnTo, window.location.origin).toString(),
           data: {
             organization_name: formData.role === "manager" ? formData.organizationName : null,
             first_name: formData.firstName,

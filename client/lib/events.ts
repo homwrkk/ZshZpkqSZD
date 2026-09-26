@@ -1,5 +1,5 @@
 export type SpecialEventStatus = "draft" | "published" | "cancelled" | "completed";
-export type SpecialEventBookingStatus = "pending" | "confirmed" | "cancelled" | "refunded";
+export type SpecialEventBookingStatus = "pending" | "confirmed" | "cancelled" | "refunded" | "manual_review" | "expired";
 export type SpecialEventPaymentStatus = "pending" | "paid" | "failed" | "cancelled" | "refunded" | "partially_refunded" | "chargeback" | "expired" | "manual_review";
 
 export interface SpecialEventTicket {
