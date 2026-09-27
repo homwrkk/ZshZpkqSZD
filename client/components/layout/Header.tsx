@@ -267,10 +267,10 @@ const Header = () => {
           description: "Exclusive deals for special guests",
         },
         {
-          title: "Events & Banquets",
+          title: "Hotel Events",
           href: "/events",
           icon: Calendar,
-          description: "Memorable celebrations",
+          description: "Browse and book hotel events",
         },
       ],
     },
@@ -601,7 +601,9 @@ const Header = () => {
                               navigate("/events?tab=my-events");
                               setIsNotificationsOpen(false);
                             } else if (notification.event_invitation_id) {
-                              navigate(`/events?tab=my-events&invitationId=${notification.event_invitation_id}`);
+                              navigate(notification.type === "event_invitation_responded"
+                                ? "/events?tab=my-events"
+                                : `/events?tab=my-events&invitationId=${notification.event_invitation_id}`);
                               setIsNotificationsOpen(false);
                             }
                           }}

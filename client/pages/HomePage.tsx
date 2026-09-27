@@ -110,8 +110,8 @@ const HomePage = ({ displayName = "Special Guest" }: HomePageProps) => {
       image: "🏔️",
     },
     {
-      title: "Special Events",
-      description: "Create memorable celebrations with us",
+      title: "Hotel Events",
+      description: "Browse, book, and share upcoming hotel events",
       icon: Calendar,
       href: "/events",
       image: "🎉",

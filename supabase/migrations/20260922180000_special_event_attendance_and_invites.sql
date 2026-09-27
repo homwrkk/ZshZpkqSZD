@@ -28,6 +28,44 @@ create unique index if not exists special_events_share_token_key
 create unique index if not exists special_event_plans_share_token_key
   on public.special_event_plans (share_token);
 
+update public.special_events e
+set price = p.entry_fee, currency = p.entry_currency
+from public.special_event_plans p
+where e.source_plan_id = p.id
+  and (e.price is distinct from p.entry_fee or e.currency is distinct from p.entry_currency);
+
+create or replace function public.prevent_special_event_plan_price_changes()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  plan_fee numeric(12, 2);
+  plan_currency text;
+begin
+  if tg_op = 'INSERT' and new.source_plan_id is not null then
+    select entry_fee, entry_currency into plan_fee, plan_currency
+    from public.special_event_plans where id = new.source_plan_id;
+    if not found then raise exception 'Source event proposal was not found'; end if;
+    new.price := plan_fee;
+    new.currency := plan_currency;
+  elsif tg_op = 'UPDATE' and (
+    new.source_plan_id is distinct from old.source_plan_id
+    or (old.source_plan_id is not null and (
+      new.price is distinct from old.price or new.currency is distinct from old.currency
+    ))
+  ) then
+    raise exception 'The event creator sets the entry fee for creator-organized events';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_special_event_plan_price_changes on public.special_events;
+create trigger prevent_special_event_plan_price_changes
+  before insert or update of source_plan_id, price, currency on public.special_events
+  for each row execute function public.prevent_special_event_plan_price_changes();
+
 create table if not exists public.special_event_invitations (
   id uuid primary key default gen_random_uuid(),
   event_plan_id uuid not null references public.special_event_plans(id) on delete cascade,
@@ -53,7 +91,7 @@ alter table public.special_event_bookings
 drop index if exists public.special_event_bookings_invitation_key;
 create unique index special_event_bookings_invitation_key
   on public.special_event_bookings (event_invitation_id)
-  where event_invitation_id is not null and status in ('pending', 'confirmed');
+  where event_invitation_id is not null and status in ('pending', 'confirmed', 'manual_review');
 create index if not exists special_event_invitations_owner_idx
   on public.special_event_invitations (event_plan_id, created_at desc);
 create index if not exists special_event_invitations_invitee_idx
@@ -87,7 +125,17 @@ stable
 security definer
 set search_path = public
 as $$
-  select to_jsonb(e)
+  select jsonb_build_object(
+    'id', e.id, 'title', e.title, 'description', e.description, 'category', e.category,
+    'starts_at', e.starts_at, 'ends_at', e.ends_at, 'timezone', e.timezone, 'location', e.location,
+    'facility_id', e.facility_id, 'is_private', e.is_private, 'source_plan_id', e.source_plan_id,
+    'share_token', e.share_token, 'price', e.price, 'currency', e.currency, 'capacity', e.capacity,
+    'ticket_type_capacity', e.ticket_type_capacity, 'max_tickets_per_order', e.max_tickets_per_order,
+    'default_ticket_type_id', e.default_ticket_type_id, 'attendees_count', e.attendees_count,
+    'featured', e.featured, 'rating', e.rating, 'host_name', e.host_name, 'image_url', e.image_url,
+    'status', e.status, 'organizer_id', e.organizer_id, 'created_by', e.created_by,
+    'created_at', e.created_at, 'updated_at', e.updated_at
+  )
   from public.special_events e
   where e.share_token = target_share_token
     and e.is_private = false
@@ -107,7 +155,17 @@ as $$
     'event_id', i.event_id,
     'invitee_email', i.invitee_email,
     'invitation_status', i.status,
-    'event', to_jsonb(e)
+    'event', jsonb_build_object(
+      'id', e.id, 'title', e.title, 'description', e.description, 'category', e.category,
+      'starts_at', e.starts_at, 'ends_at', e.ends_at, 'timezone', e.timezone, 'location', e.location,
+      'facility_id', e.facility_id, 'is_private', e.is_private, 'source_plan_id', e.source_plan_id,
+      'share_token', e.share_token, 'price', e.price, 'currency', e.currency, 'capacity', e.capacity,
+      'ticket_type_capacity', e.ticket_type_capacity, 'max_tickets_per_order', e.max_tickets_per_order,
+      'default_ticket_type_id', e.default_ticket_type_id, 'attendees_count', e.attendees_count,
+      'featured', e.featured, 'rating', e.rating, 'host_name', e.host_name, 'image_url', e.image_url,
+      'status', e.status, 'organizer_id', e.organizer_id, 'created_by', e.created_by,
+      'created_at', e.created_at, 'updated_at', e.updated_at
+    )
   )
   from public.special_event_invitations i
   join public.special_event_plans p on p.id = i.event_plan_id
@@ -116,6 +174,7 @@ as $$
     and i.status in ('pending', 'accepted')
     and p.status = 'scheduled'
     and e.is_private = true
+    and e.status = 'draft'
     and e.starts_at > now();
 $$;
 
@@ -134,7 +193,17 @@ begin
     'event_id', i.event_id,
     'invitee_email', i.invitee_email,
     'invitation_status', i.status,
-    'event', to_jsonb(e)
+    'event', jsonb_build_object(
+      'id', e.id, 'title', e.title, 'description', e.description, 'category', e.category,
+      'starts_at', e.starts_at, 'ends_at', e.ends_at, 'timezone', e.timezone, 'location', e.location,
+      'facility_id', e.facility_id, 'is_private', e.is_private, 'source_plan_id', e.source_plan_id,
+      'share_token', e.share_token, 'price', e.price, 'currency', e.currency, 'capacity', e.capacity,
+      'ticket_type_capacity', e.ticket_type_capacity, 'max_tickets_per_order', e.max_tickets_per_order,
+      'default_ticket_type_id', e.default_ticket_type_id, 'attendees_count', e.attendees_count,
+      'featured', e.featured, 'rating', e.rating, 'host_name', e.host_name, 'image_url', e.image_url,
+      'status', e.status, 'organizer_id', e.organizer_id, 'created_by', e.created_by,
+      'created_at', e.created_at, 'updated_at', e.updated_at
+    )
   ) into result
   from public.special_event_invitations i
   join public.special_event_plans p on p.id = i.event_plan_id
@@ -145,6 +214,7 @@ begin
     and i.status in ('pending', 'accepted')
     and p.status = 'scheduled'
     and e.is_private = true
+    and e.status = 'draft'
     and e.starts_at > now();
   return result;
 end;
@@ -162,7 +232,17 @@ as $$
     'event_id', i.event_id,
     'invitee_email', i.invitee_email,
     'invitation_status', i.status,
-    'event', to_jsonb(e)
+    'event', jsonb_build_object(
+      'id', e.id, 'title', e.title, 'description', e.description, 'category', e.category,
+      'starts_at', e.starts_at, 'ends_at', e.ends_at, 'timezone', e.timezone, 'location', e.location,
+      'facility_id', e.facility_id, 'is_private', e.is_private, 'source_plan_id', e.source_plan_id,
+      'share_token', e.share_token, 'price', e.price, 'currency', e.currency, 'capacity', e.capacity,
+      'ticket_type_capacity', e.ticket_type_capacity, 'max_tickets_per_order', e.max_tickets_per_order,
+      'default_ticket_type_id', e.default_ticket_type_id, 'attendees_count', e.attendees_count,
+      'featured', e.featured, 'rating', e.rating, 'host_name', e.host_name, 'image_url', e.image_url,
+      'status', e.status, 'organizer_id', e.organizer_id, 'created_by', e.created_by,
+      'created_at', e.created_at, 'updated_at', e.updated_at
+    )
   ) order by i.created_at desc), '[]'::jsonb)
   from public.special_event_invitations i
   join public.special_event_plans p on p.id = i.event_plan_id
@@ -173,6 +253,7 @@ as $$
     and i.status in ('pending', 'accepted')
     and p.status = 'scheduled'
     and e.is_private = true
+    and e.status = 'draft'
     and e.starts_at > now();
 $$;
 
@@ -187,6 +268,7 @@ set search_path = public
 as $$
 declare
   v_plan public.special_event_plans%rowtype;
+  v_event public.special_events%rowtype;
   v_email text := lower(trim(invited_email));
   v_invitee_user_id uuid;
 begin
@@ -202,7 +284,11 @@ begin
   if not found or v_plan.status <> 'scheduled' or not v_plan.is_private or v_plan.special_event_id is null then
     raise exception 'Only the creator of a scheduled private event can invite guests';
   end if;
-  if v_plan.starts_at <= now() then raise exception 'This event has already started'; end if;
+  select * into v_event from public.special_events where id = v_plan.special_event_id;
+  if not found or not v_event.is_private or v_event.source_plan_id is distinct from v_plan.id
+     or v_event.status <> 'draft' or v_event.starts_at <= now() then
+    raise exception 'This private event is no longer open for invitations';
+  end if;
 
   select p.user_id into v_invitee_user_id
   from public.user_profiles p
@@ -265,7 +351,9 @@ begin
 
   select * into v_plan from public.special_event_plans where id = v_invitation.event_plan_id;
   select * into v_event from public.special_events where id = v_invitation.event_id;
-  if v_plan.status <> 'scheduled' or not v_event.is_private or v_event.starts_at <= now() then
+  if v_plan.status <> 'scheduled' or not v_plan.is_private or not v_event.is_private
+     or v_event.source_plan_id is distinct from v_plan.id
+     or v_event.status <> 'draft' or v_event.starts_at <= now() then
     raise exception 'This event invitation is no longer valid';
   end if;
 
@@ -612,6 +700,85 @@ begin
 end;
 $$;
 
+drop function if exists public.confirm_free_special_event_booking(uuid);
+create or replace function public.confirm_free_special_event_booking(target_booking_id uuid)
+returns table (booking_id uuid, confirmation_number text, ticket_code text, ticket_count integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_booking public.special_event_bookings%rowtype;
+  v_event public.special_events%rowtype;
+  v_confirmation text;
+  v_ticket text;
+  v_remaining bigint;
+  v_type_remaining bigint;
+  v_invitation_valid boolean := false;
+begin
+  select event_id into v_event.id from public.special_event_bookings
+  where id = target_booking_id and user_id = auth.uid();
+  if not found then raise exception 'Special event booking not found'; end if;
+  select * into v_event from public.special_events where id = v_event.id for update;
+  perform public.expire_special_event_holds(v_event.id);
+  select * into v_booking from public.special_event_bookings
+  where id = target_booking_id and user_id = auth.uid() for update;
+  if v_booking.total_amount <> 0 then raise exception 'Only free bookings can be confirmed this way'; end if;
+  if v_booking.status = 'confirmed' and v_booking.payment_status = 'paid' then
+    return query select v_booking.id, v_booking.confirmation_number, v_booking.ticket_code, v_booking.quantity;
+    return;
+  end if;
+  if v_booking.status <> 'pending' or v_booking.payment_status <> 'pending' or v_booking.expires_at <= now() then
+    raise exception 'Special event booking hold has expired';
+  end if;
+  if v_event.is_private then
+    select exists (
+      select 1 from public.special_event_invitations i
+      join public.special_event_plans p on p.id = i.event_plan_id
+      where i.id = v_booking.event_invitation_id and i.event_id = v_event.id
+        and i.event_plan_id = v_event.source_plan_id and i.invitee_user_id = auth.uid()
+        and i.status = 'accepted' and p.status = 'scheduled' and p.is_private
+    ) into v_invitation_valid;
+    if v_event.status <> 'draft' or v_event.starts_at <= now() or not v_invitation_valid then
+      raise exception 'The private invitation is no longer valid';
+    end if;
+  elsif v_event.status not in ('draft', 'published') or v_event.starts_at <= now() then
+    raise exception 'This event is no longer open for registration';
+  end if;
+  select v_event.capacity - coalesce(sum(quantity), 0) into v_remaining
+  from public.special_event_bookings
+  where event_id = v_event.id and id <> v_booking.id
+    and (status = 'confirmed' or (status = 'pending' and payment_status = 'pending' and expires_at > now()));
+  select t.capacity - coalesce(sum(b.quantity), 0) into v_type_remaining
+  from public.special_event_ticket_types t
+  left join public.special_event_bookings b on b.ticket_type_id = t.id and b.id <> v_booking.id
+    and (b.status = 'confirmed' or (b.status = 'pending' and b.payment_status = 'pending' and b.expires_at > now()))
+  where t.id = v_booking.ticket_type_id group by t.capacity;
+  if v_remaining < v_booking.quantity or (v_type_remaining is not null and v_type_remaining < v_booking.quantity) then
+    raise exception 'Special event capacity exceeded';
+  end if;
+  v_confirmation := 'EVT-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
+  insert into public.special_event_tickets (
+    event_id, booking_id, ticket_type_id, ticket_number, ticket_token, attendee_name, attendee_email
+  )
+  select v_booking.event_id, v_booking.id, v_booking.ticket_type_id, seq,
+         replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''),
+         coalesce(nullif(trim(v_booking.attendee_names[seq]), ''), concat_ws(' ', v_booking.guest_first_name, v_booking.guest_last_name)), v_booking.guest_email
+  from generate_series(1, v_booking.quantity) seq
+  on conflict (booking_id, ticket_number) do nothing;
+  select ticket_token into v_ticket from public.special_event_tickets where booking_id = v_booking.id and ticket_number = 1;
+  update public.special_event_bookings set status = 'confirmed', payment_status = 'paid',
+    payment_verified_at = now(), confirmation_number = v_confirmation, ticket_code = v_ticket, updated_at = now()
+  where id = v_booking.id;
+  update public.special_events set attendees_count = attendees_count + v_booking.quantity, updated_at = now()
+  where id = v_event.id;
+  return query select v_booking.id, v_confirmation, v_ticket, v_booking.quantity;
+end;
+$$;
+
+revoke all on function public.confirm_free_special_event_booking(uuid) from public, anon;
+grant execute on function public.confirm_free_special_event_booking(uuid) to authenticated;
+
 drop function if exists public.create_special_event_booking(uuid, integer, text, text, text, text, text, uuid, uuid, text[]);
 create or replace function public.create_special_event_booking(
   target_event_id uuid,
@@ -666,9 +833,14 @@ begin
     select exists (
       select 1 from public.special_event_invitations i
       where i.id = target_invitation_id and i.event_id = v_event.id
+        and i.event_plan_id = v_event.source_plan_id
         and i.invitee_user_id = v_user_id and i.status = 'accepted'
+        and exists (
+          select 1 from public.special_event_plans p
+          where p.id = i.event_plan_id and p.status = 'scheduled' and p.is_private
+        )
     ) into v_invitation_valid;
-    if not v_invitation_valid or target_quantity <> 1 then
+    if v_event.status <> 'draft' or not v_invitation_valid or target_quantity <> 1 then
       raise exception 'An accepted private invitation is required for one attendee';
     end if;
   elsif v_event.status <> 'published' then
@@ -697,11 +869,13 @@ begin
     return;
   end if;
 
-  if target_invitation_id is not null then
+  if v_event.is_private then
     select b.id, b.order_number into v_booking_id, v_order_number
     from public.special_event_bookings b
+    join public.special_event_invitations i on i.id = b.event_invitation_id
     where b.event_invitation_id = target_invitation_id
-      and b.status in ('pending', 'confirmed');
+      and b.user_id = v_user_id and i.invitee_user_id = v_user_id
+      and i.event_id = v_event.id and b.status in ('pending', 'confirmed', 'manual_review');
     if found then
       return query select b.id, b.order_number, b.total_amount, b.currency
       from public.special_event_bookings b where b.id = v_booking_id;
@@ -751,6 +925,8 @@ revoke all on function public.get_special_event_invitation_by_token(uuid) from p
 grant execute on function public.get_special_event_invitation_by_token(uuid) to anon, authenticated;
 revoke all on function public.get_special_event_invitation_by_id(uuid) from public, anon;
 grant execute on function public.get_special_event_invitation_by_id(uuid) to authenticated;
+revoke all on function public.get_my_special_event_invitations() from public, anon;
+grant execute on function public.get_my_special_event_invitations() to authenticated;
 revoke all on function public.create_special_event_invitation(uuid, text) from public, anon;
 grant execute on function public.create_special_event_invitation(uuid, text) to authenticated;
 revoke all on function public.respond_to_special_event_invitation(uuid, boolean) from public, anon;
@@ -800,7 +976,12 @@ begin
         'event_proposal_declined', 'event_published',
         'event_invitation_received', 'event_invitation_responded'
       ))
-     and (to_jsonb(new) - 'is_read') is distinct from (to_jsonb(old) - 'is_read') then
+     and (to_jsonb(new) - 'is_read') is distinct from (to_jsonb(old) - 'is_read')
+     and not (
+       (to_jsonb(new) - 'is_read' - 'message') = (to_jsonb(old) - 'is_read' - 'message')
+       and old.message like '%Browse Events%'
+       and new.message = replace(old.message, 'Browse Events', 'Hotel Events')
+     ) then
     raise exception 'Event notifications are immutable';
   end if;
   return new;
@@ -813,12 +994,13 @@ where message like '%Browse Events%';
 
 do $$
 begin
-  if exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime'
-      and schemaname = 'public'
-      and tablename = 'special_event_invitations'
-  ) is false then
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (
+       select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime'
+         and schemaname = 'public'
+         and tablename = 'special_event_invitations'
+     ) then
     alter publication supabase_realtime add table public.special_event_invitations;
   end if;
 end;
